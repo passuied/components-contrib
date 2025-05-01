@@ -18,8 +18,9 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 
 	awsAuth "github.com/dapr/components-contrib/common/authentication/aws"
 	"github.com/dapr/components-contrib/metadata"
@@ -93,7 +94,7 @@ func (s *ssmSecretStore) GetSecret(ctx context.Context, req secretstores.GetSecr
 		name = fmt.Sprintf("%s:%s", req.Name, versionID)
 	}
 
-	output, err := s.authProvider.ParameterStore().Store.GetParameterWithContext(ctx, &ssm.GetParameterInput{
+	output, err := s.authProvider.ParameterStore().Store.GetParameter(ctx, &ssm.GetParameterInput{
 		Name:           ptr.Of(s.prefix + name),
 		WithDecryption: ptr.Of(true),
 	})
@@ -104,7 +105,7 @@ func (s *ssmSecretStore) GetSecret(ctx context.Context, req secretstores.GetSecr
 	resp := secretstores.GetSecretResponse{
 		Data: map[string]string{},
 	}
-	if output.Parameter.Name != nil && output.Parameter.Value != nil {
+	if output.Parameter != nil && output.Parameter.Name != nil && output.Parameter.Value != nil {
 		secretName := (*output.Parameter.Name)[len(s.prefix):]
 		resp.Data[secretName] = *output.Parameter.Value
 	}
@@ -121,19 +122,19 @@ func (s *ssmSecretStore) BulkGetSecret(ctx context.Context, req secretstores.Bul
 	search := true
 	var nextToken *string = nil
 
-	var filters []*ssm.ParameterStringFilter
+	var filters []ssmtypes.ParameterStringFilter
 	if s.prefix != "" {
-		filters = []*ssm.ParameterStringFilter{
+		filters = []ssmtypes.ParameterStringFilter{
 			{
-				Key:    aws.String(ssm.ParametersFilterKeyName),
+				Key:    aws.String(ssmtypes.ParametersFilterKeyNameName),
 				Option: aws.String("BeginsWith"),
-				Values: aws.StringSlice([]string{s.prefix}),
+				Values: []string{s.prefix},
 			},
 		}
 	}
 
 	for search {
-		output, err := s.authProvider.ParameterStore().Store.DescribeParametersWithContext(ctx, &ssm.DescribeParametersInput{
+		output, err := s.authProvider.ParameterStore().Store.DescribeParameters(ctx, &ssm.DescribeParametersInput{
 			MaxResults:       nil,
 			NextToken:        nextToken,
 			ParameterFilters: filters,
@@ -143,7 +144,7 @@ func (s *ssmSecretStore) BulkGetSecret(ctx context.Context, req secretstores.Bul
 		}
 
 		for _, entry := range output.Parameters {
-			params, err := s.authProvider.ParameterStore().Store.GetParameterWithContext(ctx, &ssm.GetParameterInput{
+			params, err := s.authProvider.ParameterStore().Store.GetParameter(ctx, &ssm.GetParameterInput{
 				Name:           entry.Name,
 				WithDecryption: aws.Bool(true),
 			})
@@ -151,7 +152,7 @@ func (s *ssmSecretStore) BulkGetSecret(ctx context.Context, req secretstores.Bul
 				return secretstores.BulkGetSecretResponse{Data: nil}, fmt.Errorf("couldn't get secret: %s", *entry.Name)
 			}
 
-			if entry.Name != nil && params.Parameter.Value != nil {
+			if entry.Name != nil && params.Parameter != nil && params.Parameter.Value != nil {
 				secretName := (*entry.Name)[len(s.prefix):]
 				resp.Data[secretName] = map[string]string{secretName: *params.Parameter.Value}
 			}

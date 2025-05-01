@@ -20,8 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/rolesanywhere-credential-helper/rolesanywhere"
 	"github.com/aws/rolesanywhere-credential-helper/rolesanywhere/rolesanywhereiface"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
@@ -41,7 +40,7 @@ type mockRolesAnywhereClient struct {
 	CreateSessionError  error
 }
 
-func (m *mockRolesAnywhereClient) CreateSessionWithContext(ctx context.Context, input *rolesanywhere.CreateSessionInput, opts ...request.Option) (*rolesanywhere.CreateSessionOutput, error) {
+func (m *mockRolesAnywhereClient) CreateSession(ctx context.Context, input *rolesanywhere.CreateSessionInput, optFns ...func(*rolesanywhere.Options)) (*rolesanywhere.CreateSessionOutput, error) {
 	return m.CreateSessionOutput, m.CreateSessionError
 }
 

@@ -3,7 +3,7 @@ package aws
 import (
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +33,9 @@ func TestGetConfigV2(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, awsCfg)
 			assert.Equal(t, tt.region, awsCfg.Region)
-			assert.Equal(t, tt.endpoint, *awsCfg.BaseEndpoint)
+			if tt.endpoint != "" {
+				assert.Equal(t, tt.endpoint, awsCfg.EndpointResolverWithOptions.(aws.EndpointResolverWithOptionsFunc)("", aws.EndpointResolverOptions{}).URL)
+			}
 		})
 	}
 }
@@ -63,10 +65,9 @@ func TestGetTokenClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session, err := tt.awsInstance.createSession()
-			require.NotNil(t, session)
+			cfg, err := tt.awsInstance.createConfigV2()
 			require.NoError(t, err)
-			assert.Equal(t, tt.awsInstance.region, session.Config.Region)
+			assert.Equal(t, *tt.awsInstance.region, cfg.Region)
 		})
 	}
 }

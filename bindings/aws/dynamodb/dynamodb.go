@@ -18,9 +18,9 @@ import (
 	"encoding/json"
 	"reflect"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	aws2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 
 	"github.com/dapr/components-contrib/bindings"
 	awsAuth "github.com/dapr/components-contrib/common/authentication/aws"
@@ -88,14 +88,14 @@ func (d *DynamoDB) Invoke(ctx context.Context, req *bindings.InvokeRequest) (*bi
 		return nil, err
 	}
 
-	item, err := dynamodbattribute.MarshalMap(obj)
+	item, err := attributevalue.MarshalMap(obj)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = d.authProvider.DynamoDB().DynamoDB.PutItemWithContext(ctx, &dynamodb.PutItemInput{
+	_, err = d.authProvider.DynamoDB().DynamoDB.PutItem(ctx, &dynamodb.PutItemInput{
 		Item:      item,
-		TableName: aws.String(d.table),
+		TableName: aws2.String(d.table),
 	})
 	if err != nil {
 		return nil, err

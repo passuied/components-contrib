@@ -23,25 +23,16 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/aws/aws-msk-iam-sasl-signer-go/signer"
 	aws2 "github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-	"github.com/aws/aws-sdk-go/service/kinesis"
-	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
-	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
-	"github.com/aws/aws-sdk-go/service/ses"
-	"github.com/aws/aws-sdk-go/service/sns"
-	"github.com/aws/aws-sdk-go/service/sqs"
-	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
-	"github.com/aws/aws-sdk-go/service/ssm"
-	"github.com/aws/aws-sdk-go/service/ssm/ssmiface"
-	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/vmware/vmware-go-kcl/clientlibrary/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/ses"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 type Clients struct {
@@ -63,33 +54,30 @@ func newClients() *Clients {
 	return new(Clients)
 }
 
-func (c *Clients) refresh(session *session.Session) error {
+func (c *Clients) refresh(cfg aws2.Config) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch {
 	case c.s3 != nil:
-		c.s3.New(session)
+		c.s3.New(cfg)
 	case c.Dynamo != nil:
-		c.Dynamo.New(session)
+		c.Dynamo.New(cfg)
 	case c.sns != nil:
-		c.sns.New(session)
+		c.sns.New(cfg)
 	case c.sqs != nil:
-		c.sqs.New(session)
+		c.sqs.New(cfg)
 	case c.snssqs != nil:
-		c.snssqs.New(session)
+		c.snssqs.New(cfg)
 	case c.Secret != nil:
-		c.Secret.New(session)
+		c.Secret.New(cfg)
 	case c.ParameterStore != nil:
-		c.ParameterStore.New(session)
+		c.ParameterStore.New(cfg)
 	case c.kinesis != nil:
-		c.kinesis.New(session)
+		c.kinesis.New(cfg)
 	case c.ses != nil:
-		c.ses.New(session)
+		c.ses.New(cfg)
 	case c.kafka != nil:
-		// Note: we pass in nil for token provider
-		// as there are no special fields for x509 auth for it.
-		// Only static auth passes it in.
-		err := c.kafka.New(session, nil)
+		err := c.kafka.New(cfg, nil)
 		if err != nil {
 			return fmt.Errorf("failed to refresh Kafka AWS IAM Config: %w", err)
 		}
@@ -98,45 +86,44 @@ func (c *Clients) refresh(session *session.Session) error {
 }
 
 type S3Clients struct {
-	S3         *s3.S3
-	Uploader   *s3manager.Uploader
-	Downloader *s3manager.Downloader
+	S3         *s3.Client
+	Uploader   *manager.Uploader
+	Downloader *manager.Downloader
 }
 
 type DynamoDBClients struct {
-	DynamoDB dynamodbiface.DynamoDBAPI
+	DynamoDB *dynamodb.Client
 }
 
 type SnsSqsClients struct {
-	Sns *sns.SNS
-	Sqs *sqs.SQS
-	Sts *sts.STS
+	Sns *sns.Client
+	Sqs *sqs.Client
+	Sts *sts.Client
 }
 
 type SnsClients struct {
-	Sns *sns.SNS
+	Sns *sns.Client
 }
 
 type SqsClients struct {
-	Sqs sqsiface.SQSAPI
+	Sqs *sqs.Client
 }
 
 type SecretManagerClients struct {
-	Manager secretsmanageriface.SecretsManagerAPI
+	Manager *secretsmanager.Client
 }
 
 type ParameterStoreClients struct {
-	Store ssmiface.SSMAPI
+	Store *ssm.Client
 }
 
 type KinesisClients struct {
-	Kinesis     kinesisiface.KinesisAPI
-	Region      string
-	Credentials *credentials.Credentials
+	Kinesis *kinesis.Client
+	Region  string
 }
 
 type SesClients struct {
-	Ses *ses.SES
+	Ses *ses.Client
 }
 
 type KafkaClients struct {
@@ -149,88 +136,69 @@ type KafkaClients struct {
 	Producer      sarama.SyncProducer
 }
 
-func (c *S3Clients) New(session *session.Session) {
-	refreshedS3 := s3.New(session, session.Config)
-	c.S3 = refreshedS3
-	c.Uploader = s3manager.NewUploaderWithClient(refreshedS3)
-	c.Downloader = s3manager.NewDownloaderWithClient(refreshedS3)
+func (c *S3Clients) New(cfg aws2.Config) {
+	c.S3 = s3.NewFromConfig(cfg)
+	c.Uploader = manager.NewUploader(c.S3)
+	c.Downloader = manager.NewDownloader(c.S3)
 }
 
-func (c *DynamoDBClients) New(session *session.Session) {
-	c.DynamoDB = dynamodb.New(session, session.Config)
+func (c *DynamoDBClients) New(cfg aws2.Config) {
+	c.DynamoDB = dynamodb.NewFromConfig(cfg)
 }
 
-func (c *SnsClients) New(session *session.Session) {
-	c.Sns = sns.New(session, session.Config)
+func (c *SnsClients) New(cfg aws2.Config) {
+	c.Sns = sns.NewFromConfig(cfg)
 }
 
-func (c *SnsSqsClients) New(session *session.Session) {
-	c.Sns = sns.New(session, session.Config)
-	c.Sqs = sqs.New(session, session.Config)
-	c.Sts = sts.New(session, session.Config)
+func (c *SnsSqsClients) New(cfg aws2.Config) {
+	c.Sns = sns.NewFromConfig(cfg)
+	c.Sqs = sqs.NewFromConfig(cfg)
+	c.Sts = sts.NewFromConfig(cfg)
 }
 
-func (c *SqsClients) New(session *session.Session) {
-	c.Sqs = sqs.New(session, session.Config)
+func (c *SqsClients) New(cfg aws2.Config) {
+	c.Sqs = sqs.NewFromConfig(cfg)
 }
 
 func (c *SqsClients) QueueURL(ctx context.Context, queueName string) (*string, error) {
 	if c.Sqs != nil {
-		resultURL, err := c.Sqs.GetQueueUrlWithContext(ctx, &sqs.GetQueueUrlInput{
-			QueueName: aws.String(queueName),
+		result, err := c.Sqs.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
+			QueueName: aws2.String(queueName),
 		})
-		if resultURL != nil {
-			return resultURL.QueueUrl, err
+		if result != nil {
+			return result.QueueUrl, err
 		}
 	}
 	return nil, errors.New("unable to get queue url due to empty client")
 }
 
-func (c *SecretManagerClients) New(session *session.Session) {
-	c.Manager = secretsmanager.New(session, session.Config)
+func (c *SecretManagerClients) New(cfg aws2.Config) {
+	c.Manager = secretsmanager.NewFromConfig(cfg)
 }
 
-func (c *ParameterStoreClients) New(session *session.Session) {
-	c.Store = ssm.New(session, session.Config)
+func (c *ParameterStoreClients) New(cfg aws2.Config) {
+	c.Store = ssm.NewFromConfig(cfg)
 }
 
-func (c *KinesisClients) New(session *session.Session) {
-	c.Kinesis = kinesis.New(session, session.Config)
-	c.Region = *session.Config.Region
-	c.Credentials = session.Config.Credentials
+func (c *KinesisClients) New(cfg aws2.Config) {
+	c.Kinesis = kinesis.NewFromConfig(cfg)
+	c.Region = cfg.Region
 }
 
 func (c *KinesisClients) Stream(ctx context.Context, streamName string) (*string, error) {
 	if c.Kinesis != nil {
-		stream, err := c.Kinesis.DescribeStreamWithContext(ctx, &kinesis.DescribeStreamInput{
-			StreamName: aws.String(streamName),
+		result, err := c.Kinesis.DescribeStream(ctx, &kinesis.DescribeStreamInput{
+			StreamName: aws2.String(streamName),
 		})
-		if stream != nil {
-			return stream.StreamDescription.StreamARN, err
+		if result != nil {
+			return result.StreamDescription.StreamARN, err
 		}
 	}
-
 	return nil, errors.New("unable to get stream arn due to empty client")
 }
 
-func (c *KinesisClients) WorkerCfg(ctx context.Context, stream, consumer, mode string) *config.KinesisClientLibConfiguration {
-	const sharedMode = "shared"
-	if c.Kinesis != nil {
-		if mode == sharedMode {
-			if c.Credentials != nil {
-				kclConfig := config.NewKinesisClientLibConfigWithCredential(consumer,
-					stream, c.Region, consumer,
-					c.Credentials)
-				return kclConfig
-			}
-		}
-	}
-
-	return nil
-}
-
-func (c *SesClients) New(session *session.Session) {
-	c.Ses = ses.New(session, session.Config)
+func (c *SesClients) New(cfg aws2.Config) {
+	c.Ses = ses.NewFromConfig(cfg)
 }
 
 type KafkaOptions struct {
@@ -249,11 +217,11 @@ func initKafkaClients(opts KafkaOptions) *KafkaClients {
 	}
 }
 
-func (c *KafkaClients) New(session *session.Session, tokenProvider *mskTokenProvider) error {
+func (c *KafkaClients) New(cfg aws2.Config, tokenProvider *mskTokenProvider) error {
 	const timeout = 10 * time.Second
-	creds, err := session.Config.Credentials.Get()
+	creds, err := cfg.Credentials.Retrieve(context.Background())
 	if err != nil {
-		return fmt.Errorf("failed to get credentials from session: %w", err)
+		return fmt.Errorf("failed to get credentials from config: %w", err)
 	}
 
 	// fill in token provider common fields across x509 and static auth
@@ -261,7 +229,7 @@ func (c *KafkaClients) New(session *session.Session, tokenProvider *mskTokenProv
 		tokenProvider = &mskTokenProvider{}
 	}
 	tokenProvider.generateTokenTimeout = timeout
-	tokenProvider.region = *session.Config.Region
+	tokenProvider.region = cfg.Region
 	tokenProvider.accessKey = creds.AccessKeyID
 	tokenProvider.secretKey = creds.SecretAccessKey
 	tokenProvider.sessionToken = creds.SessionToken

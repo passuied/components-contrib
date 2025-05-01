@@ -19,7 +19,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 
 	awsAuth "github.com/dapr/components-contrib/common/authentication/aws"
 	"github.com/dapr/components-contrib/metadata"
@@ -86,8 +87,8 @@ func (s *smSecretStore) GetSecret(ctx context.Context, req secretstores.GetSecre
 	if value, ok := req.Metadata[VersionStage]; ok {
 		versionStage = &value
 	}
-	output, err := s.authProvider.SecretManager().Manager.GetSecretValueWithContext(ctx, &secretsmanager.GetSecretValueInput{
-		SecretId:     &req.Name,
+	output, err := s.authProvider.SecretManager().Manager.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId:     aws.String(req.Name),
 		VersionId:    versionID,
 		VersionStage: versionStage,
 	})
@@ -115,7 +116,7 @@ func (s *smSecretStore) BulkGetSecret(ctx context.Context, req secretstores.Bulk
 	var nextToken *string = nil
 
 	for search {
-		output, err := s.authProvider.SecretManager().Manager.ListSecretsWithContext(ctx, &secretsmanager.ListSecretsInput{
+		output, err := s.authProvider.SecretManager().Manager.ListSecrets(ctx, &secretsmanager.ListSecretsInput{
 			MaxResults: nil,
 			NextToken:  nextToken,
 		})
@@ -124,15 +125,15 @@ func (s *smSecretStore) BulkGetSecret(ctx context.Context, req secretstores.Bulk
 		}
 
 		for _, entry := range output.SecretList {
-			secrets, err := s.authProvider.SecretManager().Manager.GetSecretValueWithContext(ctx, &secretsmanager.GetSecretValueInput{
+			secrets, err := s.authProvider.SecretManager().Manager.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 				SecretId: entry.Name,
 			})
 			if err != nil {
-				return secretstores.BulkGetSecretResponse{Data: nil}, fmt.Errorf("couldn't get secret: %s", *entry.Name)
+				return secretstores.BulkGetSecretResponse{Data: nil}, fmt.Errorf("couldn't get secret: %s", aws.ToString(entry.Name))
 			}
 
 			if entry.Name != nil && secrets.SecretString != nil {
-				resp.Data[*entry.Name] = map[string]string{*entry.Name: *secrets.SecretString}
+				resp.Data[aws.ToString(entry.Name)] = map[string]string{aws.ToString(entry.Name): *secrets.SecretString}
 			}
 		}
 

@@ -21,8 +21,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ses"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ses"
+	sestypes "github.com/aws/aws-sdk-go-v2/service/ses/types"
 
 	"github.com/dapr/components-contrib/bindings"
 	awsAuth "github.com/dapr/components-contrib/common/authentication/aws"
@@ -79,7 +80,7 @@ func (a *AWSSES) Init(ctx context.Context, metadata bindings.Metadata) error {
 		SessionToken: "",
 	}
 	// extra configs needed per component type
-	provider, err := awsAuth.NewProvider(ctx, opts, awsAuth.GetConfig(opts))
+	provider, err := awsAuth.NewProviderV2(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -118,18 +119,26 @@ func (a *AWSSES) Invoke(ctx context.Context, req *bindings.InvokeRequest) (*bind
 	}
 
 	// Assemble the email.
+	dest := &sestypes.Destination{
+		ToAddresses: strings.Split(metadata.EmailTo, ";"),
+	}
+	if metadata.EmailCc != "" {
+		dest.CcAddresses = strings.Split(metadata.EmailCc, ";")
+	}
+	if metadata.EmailBcc != "" {
+		dest.BccAddresses = strings.Split(metadata.EmailBcc, ";")
+	}
+
 	input := &ses.SendEmailInput{
-		Destination: &ses.Destination{
-			ToAddresses: aws.StringSlice(strings.Split(metadata.EmailTo, ";")),
-		},
-		Message: &ses.Message{
-			Body: &ses.Body{
-				Html: &ses.Content{
+		Destination: dest,
+		Message: &sestypes.Message{
+			Body: &sestypes.Body{
+				Html: &sestypes.Content{
 					Charset: aws.String(CharSet),
 					Data:    aws.String(body),
 				},
 			},
-			Subject: &ses.Content{
+			Subject: &sestypes.Content{
 				Charset: aws.String(CharSet),
 				Data:    aws.String(metadata.Subject),
 			},
@@ -139,24 +148,14 @@ func (a *AWSSES) Invoke(ctx context.Context, req *bindings.InvokeRequest) (*bind
 		// ConfigurationSetName: aws.String(ConfigurationSet),
 	}
 
-	if metadata.EmailCc != "" {
-		input.SetDestination(&ses.Destination{
-			CcAddresses: aws.StringSlice(strings.Split(metadata.EmailCc, ";")),
-		})
-	}
-	if metadata.EmailBcc != "" {
-		input.SetDestination(&ses.Destination{
-			BccAddresses: aws.StringSlice(strings.Split(metadata.EmailBcc, ";")),
-		})
-	}
-
 	// Attempt to send the email.
-	result, err := a.authProvider.Ses().Ses.SendEmail(input)
+	sesClient := a.authProvider.SesV2()
+	result, err := sesClient.SendEmail(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("SES binding error. Sending email failed: %w", err)
 	}
 
-	a.logger.Debug("SES binding: sent email successfully ", result.MessageId)
+	a.logger.Debug("SES binding: sent email successfully ", *result.MessageId)
 
 	return nil, nil
 }

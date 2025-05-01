@@ -7,7 +7,7 @@ import (
 	"github.com/dapr/components-contrib/pubsub"
 	"github.com/dapr/kit/metadata"
 
-	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go-v2/aws/endpoints"
 )
 
 type snsSqsMetadata struct {
@@ -85,8 +85,10 @@ func (s *snsSqs) getSnsSqsMetadata(meta pubsub.Metadata) (*snsSqsMetadata, error
 	}
 
 	if md.Region != "" {
-		if partition, ok := endpoints.PartitionForRegion(endpoints.DefaultPartitions(), md.Region); ok {
-			md.internalPartition = partition.ID()
+		resolver := endpoints.NewResolver()
+		part, err := resolver.ResolveEndpoint("sns", md.Region)
+		if err == nil && part.PartitionID != "" {
+			md.internalPartition = part.PartitionID
 		} else {
 			md.internalPartition = "aws"
 		}

@@ -14,17 +14,17 @@ limitations under the License.
 package snssqs_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sns"
-	"github.com/aws/aws-sdk-go/service/sns/snsiface"
-	"github.com/aws/aws-sdk-go/service/sqs"
-	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/aws/aws-sdk-go/service/sts/stsiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
 )
 
 var (
@@ -32,32 +32,32 @@ var (
 	serviceName string = "sns"
 )
 
-func deleteQueues(queues []string) error {
-	svc := sqsService()
+func deleteQueues(ctx context.Context, queues []string) error {
+	svc := sqsService(ctx)
 	for _, queue := range queues {
-		if err := deleteQueue(svc, queue); err != nil {
+		if err := deleteQueue(ctx, svc, queue); err != nil {
 			fmt.Printf("error deleting the queue URL: %q err:%v", queue, err)
 		}
 	}
 	return nil
 }
 
-func deleteQueue(svc *sqs.SQS, queue string) error {
+func deleteQueue(ctx context.Context, svc *sqs.Client, queue string) error {
 	fmt.Printf("deleteQueue: %q\n", queue)
-	queueUrl, err := getQueueURL(svc, queue)
+	queueUrl, err := getQueueURL(ctx, svc, queue)
 	if err != nil {
 		return fmt.Errorf("error getting the queue URL: %q err:%v", queue, err)
 	}
 
-	_, err = svc.DeleteQueue(&sqs.DeleteQueueInput{
+	_, err = svc.DeleteQueue(ctx, &sqs.DeleteQueueInput{
 		QueueUrl: &queueUrl,
 	})
 
 	return err
 }
 
-func getQueueURL(svc *sqs.SQS, queue string) (string, error) {
-	urlResult, err := svc.GetQueueUrl(&sqs.GetQueueUrlInput{
+func getQueueURL(ctx context.Context, svc *sqs.Client, queue string) (string, error) {
+	urlResult, err := svc.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
 		QueueName: aws.String(queue),
 	})
 
@@ -68,19 +68,18 @@ func getQueueURL(svc *sqs.SQS, queue string) (string, error) {
 	return *urlResult.QueueUrl, nil
 }
 
-func getMessages(svc *sqs.SQS, queueURL string) (*sqs.ReceiveMessageOutput, error) {
-	input := sqs.ReceiveMessageInput{
-		// use this property to decide when a message should be discarded.
-		AttributeNames: []*string{
-			aws.String(sqs.MessageSystemAttributeNameApproximateReceiveCount),
+func getMessages(ctx context.Context, svc *sqs.Client, queueURL string) (*sqs.ReceiveMessageOutput, error) {
+	input := &sqs.ReceiveMessageInput{
+		AttributeNames: []sqstypes.QueueAttributeName{
+			sqstypes.QueueAttributeNameApproximateReceiveCount,
 		},
-		MaxNumberOfMessages: aws.Int64(10),
-		QueueUrl:            aws.String(queueURL),
-		VisibilityTimeout:   aws.Int64(5),
-		WaitTimeSeconds:     aws.Int64(20),
+		MaxNumberOfMessages: 10,
+		QueueUrl:            &queueURL,
+		VisibilityTimeout:   5,
+		WaitTimeSeconds:     20,
 	}
 
-	msgResult, err := svc.ReceiveMessage(&input)
+	msgResult, err := svc.ReceiveMessage(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -88,27 +87,17 @@ func getMessages(svc *sqs.SQS, queueURL string) (*sqs.ReceiveMessageOutput, erro
 	return msgResult, nil
 }
 
-func deleteMessage(svc *sqs.SQS, queueURL, messageHandle string) error {
-	_, err := svc.DeleteMessage(&sqs.DeleteMessageInput{
-		QueueUrl:      aws.String(queueURL),
-		ReceiptHandle: aws.String(messageHandle),
+func deleteMessage(ctx context.Context, svc *sqs.Client, queueURL, messageHandle string) error {
+	_, err := svc.DeleteMessage(ctx, &sqs.DeleteMessageInput{
+		QueueUrl:      &queueURL,
+		ReceiptHandle: &messageHandle,
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
-func deleteTopics(topics []string, region string) error {
-	sess := session.Must(
-		session.NewSessionWithOptions(
-			session.Options{
-				SharedConfigState: session.SharedConfigEnable,
-			},
-		))
-	svc := sns.New(sess)
-	id, err := getIdentity(sts.New(sess))
+func deleteTopics(ctx context.Context, topics []string, region string) error {
+	svc := snsService(ctx, region)
+	id, err := getIdentity(ctx, region)
 	if err != nil {
 		return err
 	}
@@ -116,11 +105,11 @@ func deleteTopics(topics []string, region string) error {
 	for _, topic := range topics {
 		topicArn := buildARN(partition, serviceName, topic, region, id)
 		fmt.Printf("Getting subscriptions for topicArn: %s\n", topicArn)
-		if subout, err := svc.ListSubscriptionsByTopic(&sns.ListSubscriptionsByTopicInput{
+		if subout, err := svc.ListSubscriptionsByTopic(ctx, &sns.ListSubscriptionsByTopicInput{
 			TopicArn: aws.String(topicArn),
 		}); err == nil {
 			for _, sub := range subout.Subscriptions {
-				if err := unsubscribeFromTopic(svc, *sub.SubscriptionArn); err != nil {
+				if err := unsubscribeFromTopic(ctx, svc, *sub.SubscriptionArn); err != nil {
 					fmt.Printf("error unsubscribing arn: %q err:%v\n", *sub.SubscriptionArn, err)
 				}
 			}
@@ -128,57 +117,61 @@ func deleteTopics(topics []string, region string) error {
 			fmt.Printf("error getting subscription list topic: %q err:%v\n", topic, err)
 		}
 
-		if err := deleteTopic(svc, topicArn); err != nil {
+		if err := deleteTopic(ctx, svc, topicArn); err != nil {
 			fmt.Printf("error deleting the topic: %q err:%v\n", topic, err)
 		}
 	}
 	return nil
 }
 
-func deleteTopic(svc snsiface.SNSAPI, topic string) error {
+func deleteTopic(ctx context.Context, svc *sns.Client, topic string) error {
 	fmt.Printf("deleteTopic: %q\n", topic)
-	_, err := svc.DeleteTopic(&sns.DeleteTopicInput{
+	_, err := svc.DeleteTopic(ctx, &sns.DeleteTopicInput{
 		TopicArn: aws.String(topic),
 	})
 
 	return err
 }
 
-func unsubscribeFromTopic(svc snsiface.SNSAPI, subscription string) error {
-	_, err := svc.Unsubscribe(&sns.UnsubscribeInput{
+func unsubscribeFromTopic(ctx context.Context, svc *sns.Client, subscription string) error {
+	_, err := svc.Unsubscribe(ctx, &sns.UnsubscribeInput{
 		SubscriptionArn: aws.String(subscription),
 	})
 
 	return err
 }
 
-func sqsService() *sqs.SQS {
-	sess := session.Must(
-		session.NewSessionWithOptions(
-			session.Options{
-				SharedConfigState: session.SharedConfigEnable,
-			},
-		))
-	return sqs.New(sess)
+func sqsService(ctx context.Context) *sqs.Client {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return sqs.NewFromConfig(cfg)
 }
 
-func getIdentity(svc stsiface.STSAPI) (*sts.GetCallerIdentityOutput, error) {
-	input := &sts.GetCallerIdentityInput{}
-	result, err := svc.GetCallerIdentity(input)
+func snsService(ctx context.Context, region string) *sns.Client {
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			default:
-				return nil, fmt.Errorf(aerr.Error())
-			}
-		} else {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
-			return nil, fmt.Errorf(aerr.Error())
+		panic(err)
+	}
+	return sns.NewFromConfig(cfg)
+}
+
+func getIdentity(ctx context.Context, region string) (*sts.GetCallerIdentityOutput, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return nil, err
+	}
+	svc := sts.NewFromConfig(cfg)
+	input := &sts.GetCallerIdentityInput{}
+	result, err := svc.GetCallerIdentity(ctx, input)
+	if err != nil {
+		var apiErr smithy.APIError
+		if ok := errorAs(err, &apiErr); ok {
+			return nil, fmt.Errorf(apiErr.ErrorMessage())
 		}
 		return nil, err
 	}
-
 	return result, nil
 }
 
@@ -187,7 +180,7 @@ func buildARN(partition, serviceName, entityName, region string, id *sts.GetCall
 }
 
 type QueueManager struct {
-	svc *sqs.SQS
+	svc *sqs.Client
 }
 
 type SNSMessagePayload struct {
@@ -200,27 +193,28 @@ type DataMessage struct {
 
 type MessageFunc func(*DataMessage) error
 
-func NewQueueManager() *QueueManager {
+func NewQueueManager(ctx context.Context) *QueueManager {
 	qm := QueueManager{}
-	qm.connect()
+	qm.connect(ctx)
 	return &qm
 }
 
-func (qm *QueueManager) connect() error {
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	}))
-	qm.svc = sqs.New(sess)
+func (qm *QueueManager) connect(ctx context.Context) error {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return err
+	}
+	qm.svc = sqs.NewFromConfig(cfg)
 	return nil
 }
 
-func (qm *QueueManager) GetMessages(queue string, deleteMsg bool, mf MessageFunc) (int, error) {
-	queueURL, err := getQueueURL(qm.svc, queue)
+func (qm *QueueManager) GetMessages(ctx context.Context, queue string, deleteMsg bool, mf MessageFunc) (int, error) {
+	queueURL, err := getQueueURL(ctx, qm.svc, queue)
 	if err != nil {
 		return -1, err
 	}
 
-	msgResult, err := getMessages(qm.svc, queueURL)
+	msgResult, err := getMessages(ctx, qm.svc, queueURL)
 	if err != nil {
 		return -1, err
 	}
@@ -236,7 +230,7 @@ func (qm *QueueManager) GetMessages(queue string, deleteMsg bool, mf MessageFunc
 			return -1, err
 		}
 		if deleteMsg {
-			err = deleteMessage(qm.svc, queueURL, *msg.ReceiptHandle)
+			err = deleteMessage(ctx, qm.svc, queueURL, *msg.ReceiptHandle)
 			if err != nil {
 				return -1, err
 			}
@@ -246,7 +240,7 @@ func (qm *QueueManager) GetMessages(queue string, deleteMsg bool, mf MessageFunc
 	return numMgs, nil
 }
 
-func extractDataMessage(msg *sqs.Message) (*DataMessage, error) {
+func extractDataMessage(msg sqstypes.Message) (*DataMessage, error) {
 	snsMP := SNSMessagePayload{}
 	err := json.Unmarshal([]byte(*(msg.Body)), &snsMP)
 	if err != nil {

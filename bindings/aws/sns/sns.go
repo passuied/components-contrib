@@ -19,7 +19,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/aws/aws-sdk-go/service/sns"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
 
 	"github.com/dapr/components-contrib/bindings"
 	awsAuth "github.com/dapr/components-contrib/common/authentication/aws"
@@ -75,7 +76,7 @@ func (a *AWSSNS) Init(ctx context.Context, metadata bindings.Metadata) error {
 		SessionToken: m.SessionToken,
 	}
 	// extra configs needed per component type
-	provider, err := awsAuth.NewProvider(ctx, opts, awsAuth.GetConfig(opts))
+	provider, err := awsAuth.NewProviderV2(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -109,10 +110,11 @@ func (a *AWSSNS) Invoke(ctx context.Context, req *bindings.InvokeRequest) (*bind
 	msg := fmt.Sprintf("%v", payload.Message)
 	subject := fmt.Sprintf("%v", payload.Subject)
 
-	_, err = a.authProvider.Sns().Sns.PublishWithContext(ctx, &sns.PublishInput{
-		Message:  &msg,
-		Subject:  &subject,
-		TopicArn: &a.topicARN,
+	snsClient := a.authProvider.SnsV2()
+	_, err = snsClient.Publish(ctx, &sns.PublishInput{
+		Message:  aws.String(msg),
+		Subject:  aws.String(subject),
+		TopicArn: aws.String(a.topicARN),
 	})
 	if err != nil {
 		return nil, err

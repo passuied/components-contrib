@@ -21,12 +21,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
 	awsAuth "github.com/dapr/components-contrib/common/authentication/aws"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -57,7 +56,7 @@ func TestGetSecret(t *testing.T) {
 	t.Run("successfully retrieve secret", func(t *testing.T) {
 		t.Run("with valid path", func(t *testing.T) {
 			mockSSM := &awsAuth.MockParameterStore{
-				GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, option ...request.Option) (*ssm.GetParameterOutput, error) {
+				GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
 					secret := secretValue
 					return &ssm.GetParameterOutput{
 						Parameter: &ssm.Parameter{
@@ -93,7 +92,7 @@ func TestGetSecret(t *testing.T) {
 
 		t.Run("with version id", func(t *testing.T) {
 			mockSSM := &awsAuth.MockParameterStore{
-				GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, option ...request.Option) (*ssm.GetParameterOutput, error) {
+				GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
 					secret := secretValue
 					keys := strings.Split(*input.Name, ":")
 					assert.NotNil(t, keys)
@@ -135,7 +134,7 @@ func TestGetSecret(t *testing.T) {
 
 		t.Run("with prefix", func(t *testing.T) {
 			mockSSM := &awsAuth.MockParameterStore{
-				GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, option ...request.Option) (*ssm.GetParameterOutput, error) {
+				GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
 					assert.Equal(t, "/prefix/aws/dev/secret", *input.Name)
 					secret := secretValue
 
@@ -175,7 +174,7 @@ func TestGetSecret(t *testing.T) {
 
 	t.Run("unsuccessfully retrieve secret", func(t *testing.T) {
 		mockSSM := &awsAuth.MockParameterStore{
-			GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, option ...request.Option) (*ssm.GetParameterOutput, error) {
+			GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
 				return nil, errors.New("failed due to any reason")
 			},
 		}
@@ -207,8 +206,8 @@ func TestGetSecret(t *testing.T) {
 func TestGetBulkSecrets(t *testing.T) {
 	t.Run("successfully retrieve bulk secrets", func(t *testing.T) {
 		mockSSM := &awsAuth.MockParameterStore{
-			DescribeParametersFn: func(context.Context, *ssm.DescribeParametersInput, ...request.Option) (*ssm.DescribeParametersOutput, error) {
-				return &ssm.DescribeParametersOutput{NextToken: nil, Parameters: []*ssm.ParameterMetadata{
+			DescribeParametersFn: func(ctx context.Context, input *ssm.DescribeParametersInput, optFns ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error) {
+				return &ssm.DescribeParametersOutput{NextToken: nil, Parameters: []ssmtypes.ParameterMetadata{
 					{
 						Name: aws.String("/aws/dev/secret1"),
 					},
@@ -217,7 +216,7 @@ func TestGetBulkSecrets(t *testing.T) {
 					},
 				}}, nil
 			},
-			GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, option ...request.Option) (*ssm.GetParameterOutput, error) {
+			GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
 				secret := fmt.Sprintf("%s-%s", *input.Name, secretValue)
 
 				return &ssm.GetParameterOutput{
@@ -253,8 +252,8 @@ func TestGetBulkSecrets(t *testing.T) {
 
 	t.Run("successfully retrieve bulk secrets with prefix", func(t *testing.T) {
 		mockSSM := &awsAuth.MockParameterStore{
-			DescribeParametersFn: func(context.Context, *ssm.DescribeParametersInput, ...request.Option) (*ssm.DescribeParametersOutput, error) {
-				return &ssm.DescribeParametersOutput{NextToken: nil, Parameters: []*ssm.ParameterMetadata{
+			DescribeParametersFn: func(ctx context.Context, input *ssm.DescribeParametersInput, optFns ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error) {
+				return &ssm.DescribeParametersOutput{NextToken: nil, Parameters: []ssmtypes.ParameterMetadata{
 					{
 						Name: aws.String("/prefix/aws/dev/secret1"),
 					},
@@ -263,7 +262,7 @@ func TestGetBulkSecrets(t *testing.T) {
 					},
 				}}, nil
 			},
-			GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, option ...request.Option) (*ssm.GetParameterOutput, error) {
+			GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
 				secret := fmt.Sprintf("%s-%s", *input.Name, secretValue)
 
 				return &ssm.GetParameterOutput{
@@ -300,8 +299,8 @@ func TestGetBulkSecrets(t *testing.T) {
 
 	t.Run("unsuccessfully retrieve bulk secrets on get parameter", func(t *testing.T) {
 		mockSSM := &awsAuth.MockParameterStore{
-			DescribeParametersFn: func(context.Context, *ssm.DescribeParametersInput, ...request.Option) (*ssm.DescribeParametersOutput, error) {
-				return &ssm.DescribeParametersOutput{NextToken: nil, Parameters: []*ssm.ParameterMetadata{
+			DescribeParametersFn: func(ctx context.Context, input *ssm.DescribeParametersInput, optFns ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error) {
+				return &ssm.DescribeParametersOutput{NextToken: nil, Parameters: []ssmtypes.ParameterMetadata{
 					{
 						Name: aws.String("/aws/dev/secret1"),
 					},
@@ -310,7 +309,7 @@ func TestGetBulkSecrets(t *testing.T) {
 					},
 				}}, nil
 			},
-			GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, option ...request.Option) (*ssm.GetParameterOutput, error) {
+			GetParameterFn: func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
 				return nil, errors.New("failed due to any reason")
 			},
 		}
@@ -337,7 +336,7 @@ func TestGetBulkSecrets(t *testing.T) {
 
 	t.Run("unsuccessfully retrieve bulk secrets on describe parameter", func(t *testing.T) {
 		mockSSM := &awsAuth.MockParameterStore{
-			DescribeParametersFn: func(context.Context, *ssm.DescribeParametersInput, ...request.Option) (*ssm.DescribeParametersOutput, error) {
+			DescribeParametersFn: func(ctx context.Context, input *ssm.DescribeParametersInput, optFns ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error) {
 				return nil, errors.New("failed due to any reason")
 			},
 		}

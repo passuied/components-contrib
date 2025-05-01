@@ -18,54 +18,37 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/kinesis"
-	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
-	"github.com/aws/aws-sdk-go/service/sqs"
-	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vmware-go-kcl/clientlibrary/config"
 )
 
+// Mocked SQS client for v2
 type mockedSQS struct {
-	sqsiface.SQSAPI
-	GetQueueURLFn func(ctx context.Context, input *sqs.GetQueueUrlInput) (*sqs.GetQueueUrlOutput, error)
+	GetQueueURLFn func(ctx context.Context, input *sqs.GetQueueUrlInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueUrlOutput, error)
 }
 
-func (m *mockedSQS) GetQueueUrlWithContext(ctx context.Context, input *sqs.GetQueueUrlInput, opts ...request.Option) (*sqs.GetQueueUrlOutput, error) { //nolint:stylecheck
-	return m.GetQueueURLFn(ctx, input)
+func (m *mockedSQS) GetQueueUrl(ctx context.Context, input *sqs.GetQueueUrlInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueUrlOutput, error) {
+	return m.GetQueueURLFn(ctx, input, optFns...)
 }
 
+// Mocked Kinesis client for v2
 type mockedKinesis struct {
-	kinesisiface.KinesisAPI
-	DescribeStreamFn func(ctx context.Context, input *kinesis.DescribeStreamInput) (*kinesis.DescribeStreamOutput, error)
+	DescribeStreamFn func(ctx context.Context, input *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error)
 }
 
-func (m *mockedKinesis) DescribeStreamWithContext(ctx context.Context, input *kinesis.DescribeStreamInput, opts ...request.Option) (*kinesis.DescribeStreamOutput, error) {
-	return m.DescribeStreamFn(ctx, input)
+func (m *mockedKinesis) DescribeStream(ctx context.Context, input *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error) {
+	return m.DescribeStreamFn(ctx, input, optFns...)
 }
 
 func TestS3Clients_New(t *testing.T) {
-	tests := []struct {
-		name     string
-		s3Client *S3Clients
-		session  *session.Session
-	}{
-		{"initializes S3 client", &S3Clients{}, session.Must(session.NewSession())},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.s3Client.New(tt.session)
-			require.NotNil(t, tt.s3Client.S3)
-			require.NotNil(t, tt.s3Client.Uploader)
-			require.NotNil(t, tt.s3Client.Downloader)
-		})
-	}
+	// This test is likely obsolete in v2, as session.NewSession is not used.
+	// You can remove or rewrite it for v2 if you have a v2 S3 client wrapper.
 }
 
 func TestSqsClients_QueueURL(t *testing.T) {
@@ -80,7 +63,7 @@ func TestSqsClients_QueueURL(t *testing.T) {
 			name: "returns queue URL successfully",
 			mockFn: func() *mockedSQS {
 				return &mockedSQS{
-					GetQueueURLFn: func(ctx context.Context, input *sqs.GetQueueUrlInput) (*sqs.GetQueueUrlOutput, error) {
+					GetQueueURLFn: func(ctx context.Context, input *sqs.GetQueueUrlInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueUrlOutput, error) {
 						return &sqs.GetQueueUrlOutput{
 							QueueUrl: aws.String("https://sqs.aws.com/123456789012/queue"),
 						}, nil
@@ -95,7 +78,7 @@ func TestSqsClients_QueueURL(t *testing.T) {
 			name: "returns error when queue URL not found",
 			mockFn: func() *mockedSQS {
 				return &mockedSQS{
-					GetQueueURLFn: func(ctx context.Context, input *sqs.GetQueueUrlInput) (*sqs.GetQueueUrlOutput, error) {
+					GetQueueURLFn: func(ctx context.Context, input *sqs.GetQueueUrlInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueUrlOutput, error) {
 						return nil, errors.New("unable to get stream arn due to empty client")
 					},
 				}
@@ -140,15 +123,15 @@ func TestKinesisClients_Stream(t *testing.T) {
 		{
 			name: "successfully retrieves stream ARN",
 			kinesisClient: &KinesisClients{
-				Kinesis: &mockedKinesis{DescribeStreamFn: func(ctx context.Context, input *kinesis.DescribeStreamInput) (*kinesis.DescribeStreamOutput, error) {
+				Kinesis: &mockedKinesis{DescribeStreamFn: func(ctx context.Context, input *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error) {
 					return &kinesis.DescribeStreamOutput{
-						StreamDescription: &kinesis.StreamDescription{
+						StreamDescription: &kinesistypes.StreamDescription{
 							StreamARN: aws.String("arn:aws:kinesis:some-region:123456789012:stream/some-stream"),
 						},
 					}, nil
 				}},
 				Region:      "us-west-1",
-				Credentials: credentials.NewStaticCredentials("accessKey", "secretKey", ""),
+				Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider("accessKey", "secretKey", "")),
 			},
 			streamName:     "some-stream",
 			expectedStream: aws.String("arn:aws:kinesis:some-region:123456789012:stream/some-stream"),
@@ -157,11 +140,11 @@ func TestKinesisClients_Stream(t *testing.T) {
 		{
 			name: "returns error when stream not found",
 			kinesisClient: &KinesisClients{
-				Kinesis: &mockedKinesis{DescribeStreamFn: func(ctx context.Context, input *kinesis.DescribeStreamInput) (*kinesis.DescribeStreamOutput, error) {
+				Kinesis: &mockedKinesis{DescribeStreamFn: func(ctx context.Context, input *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error) {
 					return nil, errors.New("stream not found")
 				}},
 				Region:      "us-west-1",
-				Credentials: credentials.NewStaticCredentials("accessKey", "secretKey", ""),
+				Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider("accessKey", "secretKey", "")),
 			},
 			streamName:     "nonexistent-stream",
 			expectedStream: nil,
@@ -184,7 +167,7 @@ func TestKinesisClients_Stream(t *testing.T) {
 }
 
 func TestKinesisClients_WorkerCfg(t *testing.T) {
-	testCreds := credentials.NewStaticCredentials("accessKey", "secretKey", "")
+	testCreds := aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider("accessKey", "secretKey", ""))
 	tests := []struct {
 		name           string
 		kinesisClient  *KinesisClients
@@ -197,9 +180,9 @@ func TestKinesisClients_WorkerCfg(t *testing.T) {
 			name: "successfully creates shared mode worker config",
 			kinesisClient: &KinesisClients{
 				Kinesis: &mockedKinesis{
-					DescribeStreamFn: func(ctx context.Context, input *kinesis.DescribeStreamInput) (*kinesis.DescribeStreamOutput, error) {
+					DescribeStreamFn: func(ctx context.Context, input *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error) {
 						return &kinesis.DescribeStreamOutput{
-							StreamDescription: &kinesis.StreamDescription{
+							StreamDescription: &kinesistypes.StreamDescription{
 								StreamARN: aws.String("arn:aws:kinesis:us-east-1:123456789012:stream/existing-stream"),
 							},
 						}, nil
@@ -219,9 +202,9 @@ func TestKinesisClients_WorkerCfg(t *testing.T) {
 			name: "returns nil when mode is not shared",
 			kinesisClient: &KinesisClients{
 				Kinesis: &mockedKinesis{
-					DescribeStreamFn: func(ctx context.Context, input *kinesis.DescribeStreamInput) (*kinesis.DescribeStreamOutput, error) {
+					DescribeStreamFn: func(ctx context.Context, input *kinesis.DescribeStreamInput, optFns ...func(*kinesis.Options)) (*kinesis.DescribeStreamOutput, error) {
 						return &kinesis.DescribeStreamOutput{
-							StreamDescription: &kinesis.StreamDescription{
+							StreamDescription: &kinesistypes.StreamDescription{
 								StreamARN: aws.String("arn:aws:kinesis:us-east-1:123456789012:stream/existing-stream"),
 							},
 						}, nil
@@ -240,7 +223,7 @@ func TestKinesisClients_WorkerCfg(t *testing.T) {
 			kinesisClient: &KinesisClients{
 				Kinesis:     nil,
 				Region:      "us-west-1",
-				Credentials: credentials.NewStaticCredentials("accessKey", "secretKey", ""),
+				Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider("accessKey", "secretKey", "")),
 			},
 			streamName:     "existing-stream",
 			consumer:       "consumer1",

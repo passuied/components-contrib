@@ -21,8 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 
 	"github.com/dapr/components-contrib/bindings"
 	awsAuth "github.com/dapr/components-contrib/common/authentication/aws"
@@ -75,7 +74,7 @@ func (a *AWSSQS) Init(ctx context.Context, metadata bindings.Metadata) error {
 		SessionToken: m.SessionToken,
 	}
 	// extra configs needed per component type
-	provider, err := awsAuth.NewProvider(ctx, opts, awsAuth.GetConfig(opts))
+	provider, err := awsAuth.NewProviderV2(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -91,12 +90,13 @@ func (a *AWSSQS) Operations() []bindings.OperationKind {
 
 func (a *AWSSQS) Invoke(ctx context.Context, req *bindings.InvokeRequest) (*bindings.InvokeResponse, error) {
 	msgBody := string(req.Data)
-	url, err := a.authProvider.Sqs().QueueURL(ctx, a.queueName)
+	url, err := a.authProvider.SqsV2().QueueURLV2(ctx, a.queueName)
 	if err != nil {
 		a.logger.Errorf("failed to get queue url: %v", err)
+		return nil, err
 	}
 
-	_, err = a.authProvider.Sqs().Sqs.SendMessageWithContext(ctx, &sqs.SendMessageInput{
+	_, err = a.authProvider.SqsV2().SendMessage(ctx, &sqs.SendMessageInput{
 		MessageBody: &msgBody,
 		QueueUrl:    url,
 	})
@@ -118,24 +118,24 @@ func (a *AWSSQS) Read(ctx context.Context, handler bindings.Handler) error {
 			if ctx.Err() != nil || a.closed.Load() {
 				return
 			}
-			url, err := a.authProvider.Sqs().QueueURL(ctx, a.queueName)
+			url, err := a.authProvider.SqsV2().QueueURLV2(ctx, a.queueName)
 			if err != nil {
 				a.logger.Errorf("failed to get queue url: %v", err)
+				continue
 			}
 
-			result, err := a.authProvider.Sqs().Sqs.ReceiveMessageWithContext(ctx, &sqs.ReceiveMessageInput{
-				QueueUrl: url,
-				AttributeNames: aws.StringSlice([]string{
-					"SentTimestamp",
-				}),
-				MaxNumberOfMessages: aws.Int64(1),
-				MessageAttributeNames: aws.StringSlice([]string{
+			result, err := a.authProvider.SqsV2().ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+				QueueUrl:            url,
+				AttributeNames:      []sqs.QueueAttributeName{"SentTimestamp"},
+				MaxNumberOfMessages: 1,
+				MessageAttributeNames: []string{
 					"All",
-				}),
-				WaitTimeSeconds: aws.Int64(20),
+				},
+				WaitTimeSeconds: 20,
 			})
 			if err != nil {
-				a.logger.Errorf("Unable to receive message from queue %q, %v.", url, err)
+				a.logger.Errorf("Unable to receive message from queue %q, %v.", *url, err)
+				continue
 			}
 
 			if len(result.Messages) > 0 {
@@ -149,7 +149,7 @@ func (a *AWSSQS) Read(ctx context.Context, handler bindings.Handler) error {
 						msgHandle := m.ReceiptHandle
 
 						// Use a background context here because ctx may be canceled already
-						a.authProvider.Sqs().Sqs.DeleteMessageWithContext(context.Background(), &sqs.DeleteMessageInput{
+						_, _ = a.authProvider.SqsV2().DeleteMessage(context.Background(), &sqs.DeleteMessageInput{
 							QueueUrl:      url,
 							ReceiptHandle: msgHandle,
 						})

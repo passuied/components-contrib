@@ -19,8 +19,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -53,7 +52,7 @@ func TestGetSecret(t *testing.T) {
 	t.Run("successfully retrieve secret", func(t *testing.T) {
 		t.Run("without version id and version stage", func(t *testing.T) {
 			mockSSM := &awsAuth.MockSecretManager{
-				GetSecretValueFn: func(ctx context.Context, input *secretsmanager.GetSecretValueInput, option ...request.Option) (*secretsmanager.GetSecretValueOutput, error) {
+				GetSecretValueFn: func(ctx context.Context, input *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
 					assert.Nil(t, input.VersionId)
 					assert.Nil(t, input.VersionStage)
 					secret := secretValue
@@ -89,7 +88,7 @@ func TestGetSecret(t *testing.T) {
 
 		t.Run("with version id", func(t *testing.T) {
 			mockSSM := &awsAuth.MockSecretManager{
-				GetSecretValueFn: func(ctx context.Context, input *secretsmanager.GetSecretValueInput, option ...request.Option) (*secretsmanager.GetSecretValueOutput, error) {
+				GetSecretValueFn: func(ctx context.Context, input *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
 					assert.NotNil(t, input.VersionId)
 					secret := secretValue
 
@@ -127,7 +126,7 @@ func TestGetSecret(t *testing.T) {
 
 		t.Run("with version stage", func(t *testing.T) {
 			mockSSM := &awsAuth.MockSecretManager{
-				GetSecretValueFn: func(ctx context.Context, input *secretsmanager.GetSecretValueInput, option ...request.Option) (*secretsmanager.GetSecretValueOutput, error) {
+				GetSecretValueFn: func(ctx context.Context, input *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
 					assert.NotNil(t, input.VersionStage)
 					secret := secretValue
 
@@ -166,7 +165,7 @@ func TestGetSecret(t *testing.T) {
 
 	t.Run("unsuccessfully retrieve secret", func(t *testing.T) {
 		mockSSM := &awsAuth.MockSecretManager{
-			GetSecretValueFn: func(ctx context.Context, input *secretsmanager.GetSecretValueInput, option ...request.Option) (*secretsmanager.GetSecretValueOutput, error) {
+			GetSecretValueFn: func(ctx context.Context, input *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
 				return nil, errors.New("failed due to any reason")
 			},
 		}
