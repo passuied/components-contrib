@@ -16,12 +16,11 @@ package aws
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
-	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/aws/aws-sdk-go/service/ssm/ssmiface"
 )
@@ -41,18 +40,16 @@ func (m *MockParameterStore) DescribeParametersWithContext(ctx context.Context, 
 }
 
 type MockSecretManager struct {
-	GetSecretValueFn func(context.Context, *secretsmanager.GetSecretValueInput, ...request.Option) (*secretsmanager.GetSecretValueOutput, error)
-	secretsmanageriface.SecretsManagerAPI
-
-	ListSecretsFn func(context.Context, *secretsmanager.ListSecretsInput, ...request.Option) (*secretsmanager.ListSecretsOutput, error)
+	GetSecretValueFn func(context.Context, *secretsmanager.GetSecretValueInput, ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
+	ListSecretsFn    func(context.Context, *secretsmanager.ListSecretsInput, ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error)
 }
 
-func (m *MockSecretManager) GetSecretValueWithContext(ctx context.Context, input *secretsmanager.GetSecretValueInput, option ...request.Option) (*secretsmanager.GetSecretValueOutput, error) {
-	return m.GetSecretValueFn(ctx, input, option...)
+func (m *MockSecretManager) GetSecretValue(ctx context.Context, input *secretsmanager.GetSecretValueInput, opts ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
+	return m.GetSecretValueFn(ctx, input, opts...)
 }
 
-func (m *MockSecretManager) ListSecretsWithContext(ctx context.Context, input *secretsmanager.ListSecretsInput, option ...request.Option) (*secretsmanager.ListSecretsOutput, error) {
-	return m.ListSecretsFn(ctx, input, option...)
+func (m *MockSecretManager) ListSecrets(ctx context.Context, input *secretsmanager.ListSecretsInput, opts ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error) {
+	return m.ListSecretsFn(ctx, input, opts...)
 }
 
 type MockDynamoDB struct {

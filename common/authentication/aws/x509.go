@@ -262,7 +262,30 @@ func (a *x509) SecretManager() *SecretManagerClients {
 
 	clients := SecretManagerClients{}
 	a.clients.Secret = &clients
-	a.clients.Secret.New(a.session)
+
+	// Create v2 client
+	if a.region != nil {
+		// Get credentials from the current session
+		creds, err := a.session.Config.Credentials.Get()
+		if err == nil {
+			// Extract endpoint from the aws config if present
+			endpoint := ""
+			if a.cfg != nil {
+				endpoint = aws.StringValue(a.cfg.Endpoint)
+			}
+			v2Config, err := GetConfigV2(
+				creds.AccessKeyID,
+				creds.SecretAccessKey,
+				creds.SessionToken,
+				*a.region,
+				endpoint,
+			)
+			if err == nil {
+				a.clients.Secret.New(v2Config)
+			}
+		}
+	}
+
 	return a.clients.Secret
 }
 

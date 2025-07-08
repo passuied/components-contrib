@@ -188,7 +188,21 @@ func (a *StaticAuth) SecretManager() *SecretManagerClients {
 
 	clients := SecretManagerClients{}
 	a.clients.Secret = &clients
-	a.clients.Secret.New(a.session)
+
+	// Create v2 client
+	if a.region != nil {
+		v2Config, err := GetConfigV2(
+			aws.StringValue(a.accessKey),
+			aws.StringValue(a.secretKey),
+			a.sessionToken,
+			*a.region,
+			aws.StringValue(a.endpoint),
+		)
+		if err == nil {
+			a.clients.Secret.New(v2Config)
+		}
+	}
+
 	return a.clients.Secret
 }
 

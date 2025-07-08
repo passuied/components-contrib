@@ -23,6 +23,7 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/aws/aws-msk-iam-sasl-signer-go/signer"
 	aws2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -32,8 +33,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
-	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
 	"github.com/aws/aws-sdk-go/service/ses"
 	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/aws/aws-sdk-go/service/sqs"
@@ -77,8 +76,6 @@ func (c *Clients) refresh(session *session.Session) error {
 		c.sqs.New(session)
 	case c.snssqs != nil:
 		c.snssqs.New(session)
-	case c.Secret != nil:
-		c.Secret.New(session)
 	case c.ParameterStore != nil:
 		c.ParameterStore.New(session)
 	case c.kinesis != nil:
@@ -121,8 +118,14 @@ type SqsClients struct {
 	Sqs sqsiface.SQSAPI
 }
 
+// SecretManagerClientInterface defines the interface for AWS Secrets Manager operations
+type SecretManagerClientInterface interface {
+	GetSecretValue(ctx context.Context, input *secretsmanager.GetSecretValueInput, opts ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
+	ListSecrets(ctx context.Context, input *secretsmanager.ListSecretsInput, opts ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error)
+}
+
 type SecretManagerClients struct {
-	Manager secretsmanageriface.SecretsManagerAPI
+	Manager SecretManagerClientInterface
 }
 
 type ParameterStoreClients struct {
@@ -186,8 +189,8 @@ func (c *SqsClients) QueueURL(ctx context.Context, queueName string) (*string, e
 	return nil, errors.New("unable to get queue url due to empty client")
 }
 
-func (c *SecretManagerClients) New(session *session.Session) {
-	c.Manager = secretsmanager.New(session, session.Config)
+func (c *SecretManagerClients) New(cfg aws2.Config) {
+	c.Manager = secretsmanager.NewFromConfig(cfg)
 }
 
 func (c *ParameterStoreClients) New(session *session.Session) {

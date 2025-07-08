@@ -85,8 +85,8 @@ type Provider interface {
 	Sqs() *SqsClients
 	Sns() *SnsClients
 	SnsSqs() *SnsSqsClients
-	SecretManager() *SecretManagerClients
 	ParameterStore() *ParameterStoreClients
+	SecretManager() *SecretManagerClients
 	Kinesis() *KinesisClients
 	Ses() *SesClients
 	Kafka(KafkaOptions) (*KafkaClients, error)
