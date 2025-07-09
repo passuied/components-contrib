@@ -106,6 +106,21 @@ func (a *StaticAuth) WithMockClients(clients *Clients) {
 	a.clients = clients
 }
 
+// Helper method to initialize v2 clients (DynamoDB, SecretsManager, etc.) for static auth
+func (a *StaticAuth) initializeV2Client(client interface{ New(cfg awsv2.Config) }) {
+	if a.region != nil {
+		if v2Config, err := GetConfigV2(
+			aws.StringValue(a.accessKey),
+			aws.StringValue(a.secretKey),
+			a.sessionToken,
+			aws.StringValue(a.region),
+			aws.StringValue(a.endpoint),
+		); err == nil {
+			client.New(v2Config)
+		}
+	}
+}
+
 func (a *StaticAuth) S3() *S3Clients {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -189,19 +204,7 @@ func (a *StaticAuth) SecretManager() *SecretManagerClients {
 	clients := SecretManagerClients{}
 	a.clients.Secret = &clients
 
-	// Create v2 client
-	if a.region != nil {
-		v2Config, err := GetConfigV2(
-			aws.StringValue(a.accessKey),
-			aws.StringValue(a.secretKey),
-			a.sessionToken,
-			*a.region,
-			aws.StringValue(a.endpoint),
-		)
-		if err == nil {
-			a.clients.Secret.New(v2Config)
-		}
-	}
+	a.initializeV2Client(a.clients.Secret)
 
 	return a.clients.Secret
 }

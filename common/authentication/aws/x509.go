@@ -137,6 +137,27 @@ func newX509(ctx context.Context, opts Options, cfg *aws.Config) (*x509, error) 
 	return auth, nil
 }
 
+// Helper method to initialize v2 clients (DynamoDB, SecretsManager, etc.)
+func (a *x509) initializeV2Client(client interface{ New(cfg awsv2.Config) }) {
+	// Get credentials from the current session
+	if creds, err := a.session.Config.Credentials.Get(); err == nil {
+		// Extract endpoint from the aws config if present
+		endpoint := ""
+		if a.cfg != nil {
+			endpoint = aws.StringValue(a.cfg.Endpoint)
+		}
+		if v2Config, err := GetConfigV2(
+			creds.AccessKeyID,
+			creds.SecretAccessKey,
+			creds.SessionToken,
+			aws.StringValue(a.region),
+			endpoint,
+		); err == nil {
+			client.New(v2Config)
+		}
+	}
+}
+
 func (a *x509) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -263,28 +284,7 @@ func (a *x509) SecretManager() *SecretManagerClients {
 	clients := SecretManagerClients{}
 	a.clients.Secret = &clients
 
-	// Create v2 client
-	if a.region != nil {
-		// Get credentials from the current session
-		creds, err := a.session.Config.Credentials.Get()
-		if err == nil {
-			// Extract endpoint from the aws config if present
-			endpoint := ""
-			if a.cfg != nil {
-				endpoint = aws.StringValue(a.cfg.Endpoint)
-			}
-			v2Config, err := GetConfigV2(
-				creds.AccessKeyID,
-				creds.SecretAccessKey,
-				creds.SessionToken,
-				*a.region,
-				endpoint,
-			)
-			if err == nil {
-				a.clients.Secret.New(v2Config)
-			}
-		}
-	}
+	a.initializeV2Client(a.clients.Secret)
 
 	return a.clients.Secret
 }

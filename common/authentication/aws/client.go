@@ -62,9 +62,25 @@ func newClients() *Clients {
 	return new(Clients)
 }
 
+// Refresh v2 SDK clients helper function
+func refreshV2Client(client interface{ New(cfg aws2.Config) }, session *session.Session) {
+	if creds, err := session.Config.Credentials.Get(); err == nil {
+		if v2Config, err := GetConfigV2(
+			creds.AccessKeyID,
+			creds.SecretAccessKey,
+			creds.SessionToken,
+			aws.StringValue(session.Config.Region),
+			aws.StringValue(session.Config.Endpoint),
+		); err == nil {
+			client.New(v2Config)
+		}
+	}
+}
+
 func (c *Clients) refresh(session *session.Session) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	switch {
 	case c.s3 != nil:
 		c.s3.New(session)
@@ -76,6 +92,8 @@ func (c *Clients) refresh(session *session.Session) error {
 		c.sqs.New(session)
 	case c.snssqs != nil:
 		c.snssqs.New(session)
+	case c.Secret != nil:
+		refreshV2Client(c.Secret, session)
 	case c.ParameterStore != nil:
 		c.ParameterStore.New(session)
 	case c.kinesis != nil:

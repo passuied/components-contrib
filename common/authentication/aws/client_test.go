@@ -263,3 +263,27 @@ func TestKinesisClients_WorkerCfg(t *testing.T) {
 		})
 	}
 }
+
+func TestClients_RefreshV2Clients(t *testing.T) {
+	// Create a mock session with region
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region:      aws.String("us-east-1"),
+		Credentials: credentials.NewStaticCredentials("test-key", "test-secret", "test-token"),
+	}))
+
+	t.Run("refreshes SecretsManager v2 client", func(t *testing.T) {
+		clients := &Clients{
+			Secret: &SecretManagerClients{},
+		}
+
+		// Initially SecretsManager client should be nil
+		assert.Nil(t, clients.Secret.Manager)
+
+		// Refresh should create/update the SecretsManager client
+		err := clients.refresh(sess)
+		require.NoError(t, err)
+
+		// After refresh, SecretsManager client should be initialized
+		assert.NotNil(t, clients.Secret.Manager)
+	})
+}
