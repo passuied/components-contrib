@@ -271,6 +271,22 @@ func TestClients_RefreshV2Clients(t *testing.T) {
 		Credentials: credentials.NewStaticCredentials("test-key", "test-secret", "test-token"),
 	}))
 
+	t.Run("refreshes DynamoDB v2 client", func(t *testing.T) {
+		clients := &Clients{
+			Dynamo: &DynamoDBClients{},
+		}
+
+		// Initially DynamoDB client should be nil
+		assert.Nil(t, clients.Dynamo.DynamoDB)
+
+		// Refresh should create/update the DynamoDB client
+		err := clients.refresh(sess)
+		require.NoError(t, err)
+
+		// After refresh, DynamoDB client should be initialized
+		assert.NotNil(t, clients.Dynamo.DynamoDB)
+	})
+
 	t.Run("refreshes SecretsManager v2 client", func(t *testing.T) {
 		clients := &Clients{
 			Secret: &SecretManagerClients{},

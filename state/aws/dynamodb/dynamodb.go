@@ -23,8 +23,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	jsoniterator "github.com/json-iterator/go"
 
 	awsAuth "github.com/dapr/components-contrib/common/authentication/aws"
@@ -63,8 +64,8 @@ type dynamoDBMetadata struct {
 
 type putData struct {
 	ConditionExpression       *string
-	ExpressionAttributeValues map[string]*dynamodb.AttributeValue
-	Item                      map[string]*dynamodb.AttributeValue
+	ExpressionAttributeValues map[string]types.AttributeValue
+	Item                      map[string]types.AttributeValue
 	TableName                 *string
 }
 
@@ -124,13 +125,13 @@ func (d *StateStore) validateTableAccess(ctx context.Context) error {
 	input := &dynamodb.GetItemInput{
 		ConsistentRead: ptr.Of(false),
 		TableName:      ptr.Of(d.table),
-		Key: map[string]*dynamodb.AttributeValue{
-			d.partitionKey: {
-				S: ptr.Of(utils.GetRandOrDefaultString("dapr-test-table")),
+		Key: map[string]types.AttributeValue{
+			d.partitionKey: &types.AttributeValueMemberS{
+				Value: utils.GetRandOrDefaultString("dapr-test-table"),
 			},
 		},
 	}
-	_, err := d.authProvider.DynamoDB().DynamoDB.GetItemWithContext(ctx, input)
+	_, err := d.authProvider.DynamoDB().DynamoDB.GetItem(ctx, input)
 	return err
 }
 
@@ -156,13 +157,13 @@ func (d *StateStore) Get(ctx context.Context, req *state.GetRequest) (*state.Get
 	input := &dynamodb.GetItemInput{
 		ConsistentRead: ptr.Of(req.Options.Consistency == state.Strong),
 		TableName:      ptr.Of(d.table),
-		Key: map[string]*dynamodb.AttributeValue{
-			d.partitionKey: {
-				S: ptr.Of(req.Key),
+		Key: map[string]types.AttributeValue{
+			d.partitionKey: &types.AttributeValueMemberS{
+				Value: req.Key,
 			},
 		},
 	}
-	result, err := d.authProvider.DynamoDB().DynamoDB.GetItemWithContext(ctx, input)
+	result, err := d.authProvider.DynamoDB().DynamoDB.GetItem(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +181,7 @@ func (d *StateStore) Get(ctx context.Context, req *state.GetRequest) (*state.Get
 	if d.ttlAttributeName != "" {
 		if val, ok := result.Item[d.ttlAttributeName]; ok {
 			var ttl int64
-			if err = dynamodbattribute.Unmarshal(val, &ttl); err != nil {
+			if err = attributevalue.Unmarshal(val, &ttl); err != nil {
 				return nil, err
 			}
 			if ttl <= time.Now().Unix() {
@@ -200,7 +201,7 @@ func (d *StateStore) Get(ctx context.Context, req *state.GetRequest) (*state.Get
 
 	if result.Item["etag"] != nil {
 		var etag string
-		err = dynamodbattribute.Unmarshal(result.Item["etag"], &etag)
+		err = attributevalue.Unmarshal(result.Item["etag"], &etag)
 		if err != nil {
 			return nil, err
 		}
@@ -217,11 +218,11 @@ func (d *StateStore) Set(ctx context.Context, req *state.SetRequest) error {
 		return err
 	}
 
-	_, err = d.authProvider.DynamoDB().DynamoDB.PutItemWithContext(ctx, pd.ToPutItemInput())
+	_, err = d.authProvider.DynamoDB().DynamoDB.PutItem(ctx, pd.ToPutItemInput())
 	if err != nil && req.HasETag() {
-		switch cErr := err.(type) {
-		case *dynamodb.ConditionalCheckFailedException:
-			err = state.NewETagError(state.ETagMismatch, cErr)
+		var conditionalCheckFailedException *types.ConditionalCheckFailedException
+		if errors.As(err, &conditionalCheckFailedException) {
+			err = state.NewETagError(state.ETagMismatch, conditionalCheckFailedException)
 		}
 	}
 
@@ -231,9 +232,9 @@ func (d *StateStore) Set(ctx context.Context, req *state.SetRequest) error {
 // Delete performs a delete operation.
 func (d *StateStore) Delete(ctx context.Context, req *state.DeleteRequest) error {
 	input := &dynamodb.DeleteItemInput{
-		Key: map[string]*dynamodb.AttributeValue{
-			d.partitionKey: {
-				S: ptr.Of(req.Key),
+		Key: map[string]types.AttributeValue{
+			d.partitionKey: &types.AttributeValueMemberS{
+				Value: req.Key,
 			},
 		},
 		TableName: ptr.Of(d.table),
@@ -242,17 +243,17 @@ func (d *StateStore) Delete(ctx context.Context, req *state.DeleteRequest) error
 	if req.HasETag() {
 		condExpr := "etag = :etag"
 		input.ConditionExpression = &condExpr
-		exprAttrValues := make(map[string]*dynamodb.AttributeValue)
-		exprAttrValues[":etag"] = &dynamodb.AttributeValue{
-			S: req.ETag,
+		exprAttrValues := make(map[string]types.AttributeValue)
+		exprAttrValues[":etag"] = &types.AttributeValueMemberS{
+			Value: *req.ETag,
 		}
 		input.ExpressionAttributeValues = exprAttrValues
 	}
-	_, err := d.authProvider.DynamoDB().DynamoDB.DeleteItemWithContext(ctx, input)
+	_, err := d.authProvider.DynamoDB().DynamoDB.DeleteItem(ctx, input)
 	if err != nil {
-		switch cErr := err.(type) {
-		case *dynamodb.ConditionalCheckFailedException:
-			err = state.NewETagError(state.ETagMismatch, cErr)
+		var conditionalCheckFailedException *types.ConditionalCheckFailedException
+		if errors.As(err, &conditionalCheckFailedException) {
+			err = state.NewETagError(state.ETagMismatch, conditionalCheckFailedException)
 		}
 	}
 
@@ -297,9 +298,9 @@ func (d *StateStore) createPutData(req *state.SetRequest) (putData, error) {
 	if req.HasETag() {
 		condExpr := "etag = :etag"
 		pd.ConditionExpression = &condExpr
-		exprAttrValues := make(map[string]*dynamodb.AttributeValue)
-		exprAttrValues[":etag"] = &dynamodb.AttributeValue{
-			S: req.ETag,
+		exprAttrValues := make(map[string]types.AttributeValue)
+		exprAttrValues[":etag"] = &types.AttributeValueMemberS{
+			Value: *req.ETag,
 		}
 		pd.ExpressionAttributeValues = exprAttrValues
 	} else if req.Options.Concurrency == state.FirstWrite {
@@ -319,8 +320,8 @@ func (d putData) ToPutItemInput() *dynamodb.PutItemInput {
 	}
 }
 
-func (d putData) ToPut() *dynamodb.Put {
-	return &dynamodb.Put{
+func (d putData) ToPut() *types.Put {
+	return &types.Put{
 		ConditionExpression:       d.ConditionExpression,
 		ExpressionAttributeValues: d.ExpressionAttributeValues,
 		Item:                      d.Item,
@@ -329,7 +330,7 @@ func (d putData) ToPut() *dynamodb.Put {
 }
 
 // createItem creates a DynamoDB item from a SetRequest.
-func (d *StateStore) createItem(req *state.SetRequest) (map[string]*dynamodb.AttributeValue, error) {
+func (d *StateStore) createItem(req *state.SetRequest) (map[string]types.AttributeValue, error) {
 	value, err := marshalValue(req.Value)
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb error: failed to marshal value for key %s: %w", req.Key, err)
@@ -345,19 +346,19 @@ func (d *StateStore) createItem(req *state.SetRequest) (map[string]*dynamodb.Att
 		return nil, fmt.Errorf("dynamodb error: failed to generate etag: %w", err)
 	}
 
-	item := map[string]*dynamodb.AttributeValue{
-		d.partitionKey: {
-			S: ptr.Of(req.Key),
+	item := map[string]types.AttributeValue{
+		d.partitionKey: &types.AttributeValueMemberS{
+			Value: req.Key,
 		},
 		"value": value,
-		"etag": {
-			S: ptr.Of(strconv.FormatUint(newEtag, 16)),
+		"etag": &types.AttributeValueMemberS{
+			Value: strconv.FormatUint(newEtag, 16),
 		},
 	}
 
 	if ttl != nil {
-		item[d.ttlAttributeName] = &dynamodb.AttributeValue{
-			N: ptr.Of(strconv.FormatInt(*ttl, 10)),
+		item[d.ttlAttributeName] = &types.AttributeValueMemberN{
+			Value: strconv.FormatInt(*ttl, 10),
 		}
 	}
 
@@ -374,27 +375,35 @@ func getRand64() (uint64, error) {
 	return binary.LittleEndian.Uint64(randBuf), nil
 }
 
-func marshalValue(v interface{}) (*dynamodb.AttributeValue, error) {
+func marshalValue(v interface{}) (types.AttributeValue, error) {
 	if bt, ok := v.([]byte); ok {
-		return &dynamodb.AttributeValue{B: bt}, nil
+		return &types.AttributeValueMemberB{
+			Value: bt,
+		}, nil
 	}
 
 	str, err := jsoniterator.ConfigFastest.MarshalToString(v)
 	if err != nil {
 		return nil, err
 	}
-	return &dynamodb.AttributeValue{S: ptr.Of(str)}, nil
+	return &types.AttributeValueMemberS{
+		Value: str,
+	}, nil
 }
 
-func unmarshalValue(value *dynamodb.AttributeValue) ([]byte, error) {
+func unmarshalValue(value types.AttributeValue) ([]byte, error) {
 	if value == nil {
 		return []byte(nil), nil
 	}
 
-	if value.B != nil {
-		return value.B, nil
+	if bValue, ok := value.(*types.AttributeValueMemberB); ok {
+		return bValue.Value, nil
 	}
-	return []byte(*value.S), nil
+	if sValue, ok := value.(*types.AttributeValueMemberS); ok {
+		return []byte(sValue.Value), nil
+	}
+
+	return nil, fmt.Errorf("unsupported AttributeValue type: %T", value)
 }
 
 // Parse and process ttlInSeconds.
@@ -430,7 +439,7 @@ func (d *StateStore) Multi(ctx context.Context, request *state.TransactionalStat
 	}
 
 	twinput := &dynamodb.TransactWriteItemsInput{
-		TransactItems: make([]*dynamodb.TransactWriteItem, 0, opns),
+		TransactItems: make([]types.TransactWriteItem, 0, opns),
 	}
 
 	// Note: The following is a DynamoDB logic to avoid errors like following,
@@ -450,7 +459,7 @@ func (d *StateStore) Multi(ctx context.Context, request *state.TransactionalStat
 			continue
 		}
 
-		twi := &dynamodb.TransactWriteItem{}
+		twi := types.TransactWriteItem{}
 		switch req := o.(type) {
 		case state.SetRequest:
 			pd, err := d.createPutData(&req)
@@ -460,18 +469,18 @@ func (d *StateStore) Multi(ctx context.Context, request *state.TransactionalStat
 			twi.Put = pd.ToPut()
 
 		case state.DeleteRequest:
-			twi.Delete = &dynamodb.Delete{
+			twi.Delete = &types.Delete{
 				TableName: ptr.Of(d.table),
-				Key: map[string]*dynamodb.AttributeValue{
-					d.partitionKey: {
-						S: ptr.Of(req.Key),
+				Key: map[string]types.AttributeValue{
+					d.partitionKey: &types.AttributeValueMemberS{
+						Value: req.Key,
 					},
 				},
 			}
 		}
 		twinput.TransactItems = append(twinput.TransactItems, twi)
 	}
-	_, err := d.authProvider.DynamoDB().DynamoDB.TransactWriteItemsWithContext(ctx, twinput)
+	_, err := d.authProvider.DynamoDB().DynamoDB.TransactWriteItems(ctx, twinput)
 
 	return err
 }

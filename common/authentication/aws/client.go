@@ -23,12 +23,11 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/aws/aws-msk-iam-sasl-signer-go/signer"
 	aws2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/aws/aws-sdk-go/service/kinesis"
 	"github.com/aws/aws-sdk-go/service/kinesis/kinesisiface"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -84,14 +83,14 @@ func (c *Clients) refresh(session *session.Session) error {
 	switch {
 	case c.s3 != nil:
 		c.s3.New(session)
-	case c.Dynamo != nil:
-		c.Dynamo.New(session)
 	case c.sns != nil:
 		c.sns.New(session)
 	case c.sqs != nil:
 		c.sqs.New(session)
 	case c.snssqs != nil:
 		c.snssqs.New(session)
+	case c.Dynamo != nil:
+		refreshV2Client(c.Dynamo, session)
 	case c.Secret != nil:
 		refreshV2Client(c.Secret, session)
 	case c.ParameterStore != nil:
@@ -109,6 +108,7 @@ func (c *Clients) refresh(session *session.Session) error {
 			return fmt.Errorf("failed to refresh Kafka AWS IAM Config: %w", err)
 		}
 	}
+
 	return nil
 }
 
@@ -118,8 +118,17 @@ type S3Clients struct {
 	Downloader *s3manager.Downloader
 }
 
+// DynamoDBClientInterface defines the interface for AWS DynamoDB operations
+type DynamoDBClientInterface interface {
+	GetItem(ctx context.Context, input *dynamodb.GetItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	PutItem(ctx context.Context, input *dynamodb.PutItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+	BatchWriteItem(ctx context.Context, input *dynamodb.BatchWriteItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
+	DeleteItem(ctx context.Context, input *dynamodb.DeleteItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
+	TransactWriteItems(ctx context.Context, input *dynamodb.TransactWriteItemsInput, opts ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
+}
+
 type DynamoDBClients struct {
-	DynamoDB dynamodbiface.DynamoDBAPI
+	DynamoDB DynamoDBClientInterface
 }
 
 type SnsSqsClients struct {
@@ -177,8 +186,8 @@ func (c *S3Clients) New(session *session.Session) {
 	c.Downloader = s3manager.NewDownloaderWithClient(refreshedS3)
 }
 
-func (c *DynamoDBClients) New(session *session.Session) {
-	c.DynamoDB = dynamodb.New(session, session.Config)
+func (c *DynamoDBClients) New(cfg aws2.Config) {
+	c.DynamoDB = dynamodb.NewFromConfig(cfg)
 }
 
 func (c *SnsClients) New(session *session.Session) {
