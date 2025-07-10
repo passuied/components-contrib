@@ -135,21 +135,6 @@ func (a *StaticAuth) S3() *S3Clients {
 	return a.clients.s3
 }
 
-// Helper method to initialize v2 clients (DynamoDB, SecretsManager, etc.) for static auth
-func (a *StaticAuth) initializeV2Client(client interface{ New(cfg awsv2.Config) }) {
-	if a.region != nil {
-		if v2Config, err := GetConfigV2(
-			aws.StringValue(a.accessKey),
-			aws.StringValue(a.secretKey),
-			a.sessionToken,
-			*a.region,
-			aws.StringValue(a.endpoint),
-		); err == nil {
-			client.New(v2Config)
-		}
-	}
-}
-
 func (a *StaticAuth) DynamoDB() *DynamoDBClients {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -215,27 +215,6 @@ func (a *x509) S3() *S3Clients {
 	return a.clients.s3
 }
 
-// Helper method to initialize v2 clients (DynamoDB, SecretsManager, etc.)
-func (a *x509) initializeV2Client(client interface{ New(cfg awsv2.Config) }) {
-	// Get credentials from the current session
-	if creds, err := a.session.Config.Credentials.Get(); err == nil {
-		// Extract endpoint from the aws config if present
-		endpoint := ""
-		if a.cfg != nil {
-			endpoint = aws.StringValue(a.cfg.Endpoint)
-		}
-		if v2Config, err := GetConfigV2(
-			creds.AccessKeyID,
-			creds.SecretAccessKey,
-			creds.SessionToken,
-			aws.StringValue(a.region),
-			endpoint,
-		); err == nil {
-			client.New(v2Config)
-		}
-	}
-}
-
 func (a *x509) DynamoDB() *DynamoDBClients {
 	a.mu.Lock()
 	defer a.mu.Unlock()
