@@ -79,6 +79,7 @@ export AZURE_OPENAI_API_VERSION="your_azreopenai_api_version_here"
 
 Get your configuration values from: https://ai.azure.com/
 
+### Anthropic
 ```bash
 export ANTHROPIC_API_KEY="your_anthropic_api_key"
 ```
