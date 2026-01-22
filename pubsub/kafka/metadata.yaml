@@ -422,6 +422,24 @@ metadata:
         Enables Avro JSON schema for serialization. Only applicable when the subscription uses valueSchemaType=Avro
       example: "true"
       default: "false"
+    - name: avroDecimalBinarySpecCompliantEncoding
+      type: bool
+      required: false
+      description: |
+        Enables stricter Avro 1.10.2 specification compliance for decimal encoding.
+        When true, decimal values use two's-complement binary representation and human-readable decimal strings in JSON.
+        Only effective when useAvroJSON is also set to true.
+      example: "true"
+      default: "false"
+    - name: avroIgnoreExtraFieldsFromTextual
+      type: bool
+      required: false
+      description: |
+        Allows the Avro codec to ignore extra fields in the JSON input that are not defined in the schema.
+        This enables forward-compatible schema evolution where consumers can process messages from producers using newer schemas.
+        Only effective when useAvroJSON is also set to true.
+      example: "true"
+      default: "false"
     - name: compression
       type: string
       required: false

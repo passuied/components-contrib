@@ -94,6 +94,7 @@ func TestDeserializeValue(t *testing.T) {
 	kAvroJSON := Kafka{
 		srClient:             registryAvroJSON,
 		schemaCachingEnabled: true,
+		useAvroJSON:          true,
 		logger:               logger.NewLogger("kafka_test"),
 	}
 	kAvroJSON.srClient.CodecJsonEnabled(false)
@@ -254,6 +255,7 @@ func TestSerializeValueCachingDisabled(t *testing.T) {
 	kAvroJSON := Kafka{
 		srClient:             registryAvroJSON,
 		schemaCachingEnabled: false,
+		useAvroJSON:          true,
 		logger:               logger.NewLogger("kafka_test"),
 	}
 
@@ -674,4 +676,202 @@ func TestInitConsumerGroupRebalanceStrategy(t *testing.T) {
 			// For now, we just verify the strategy is set correctly
 		})
 	}
+}
+
+func TestNewCodecWithOptions(t *testing.T) {
+	simpleSchema := `{"type": "record", "name": "test", "fields": [{"name": "name", "type": "string"}]}`
+
+	t.Run("Default options - no options enabled", func(t *testing.T) {
+		k := &Kafka{
+			avroDecimalBinarySpecCompliantEncoding: false,
+			avroIgnoreExtraFieldsFromTextual:       false,
+		}
+
+		codec, err := k.newCodecWithOptions(simpleSchema)
+		require.NoError(t, err)
+		require.NotNil(t, codec)
+
+		// Should work with valid data
+		native, _, err := codec.NativeFromTextual([]byte(`{"name": "test"}`))
+		require.NoError(t, err)
+		require.NotNil(t, native)
+	})
+
+	t.Run("IgnoreExtraFieldsFromTextual enabled - ignores unknown fields", func(t *testing.T) {
+		k := &Kafka{
+			useAvroJSON:                            true, // Required for options to take effect
+			avroDecimalBinarySpecCompliantEncoding: false,
+			avroIgnoreExtraFieldsFromTextual:       true,
+		}
+
+		codec, err := k.newCodecWithOptions(simpleSchema)
+		require.NoError(t, err)
+		require.NotNil(t, codec)
+
+		// Should succeed even with extra fields when option is enabled
+		native, _, err := codec.NativeFromTextual([]byte(`{"name": "test", "extraField": "ignored"}`))
+		require.NoError(t, err)
+		require.NotNil(t, native)
+	})
+
+	t.Run("IgnoreExtraFieldsFromTextual disabled - fails on unknown fields", func(t *testing.T) {
+		k := &Kafka{
+			avroDecimalBinarySpecCompliantEncoding: false,
+			avroIgnoreExtraFieldsFromTextual:       false,
+		}
+
+		codec, err := k.newCodecWithOptions(simpleSchema)
+		require.NoError(t, err)
+		require.NotNil(t, codec)
+
+		// Should fail with extra fields when option is disabled
+		_, _, err = codec.NativeFromTextual([]byte(`{"name": "test", "extraField": "notAllowed"}`))
+		require.Error(t, err)
+	})
+
+	t.Run("Both options enabled", func(t *testing.T) {
+		k := &Kafka{
+			useAvroJSON:                            true, // Required for options to take effect
+			avroDecimalBinarySpecCompliantEncoding: true,
+			avroIgnoreExtraFieldsFromTextual:       true,
+		}
+
+		codec, err := k.newCodecWithOptions(simpleSchema)
+		require.NoError(t, err)
+		require.NotNil(t, codec)
+
+		// Should work with valid data
+		native, _, err := codec.NativeFromTextual([]byte(`{"name": "test", "extra": "ignored"}`))
+		require.NoError(t, err)
+		require.NotNil(t, native)
+	})
+}
+
+func TestDeserializeValueWithCodecOptions(t *testing.T) {
+	handlerConfig := SubscriptionHandlerConfig{
+		IsBulkSubscribe: false,
+		ValueSchemaType: Avro,
+	}
+
+	simpleSchema := `{"type": "record", "name": "test", "fields": [{"name": "name", "type": "string"}]}`
+
+	registry := srclient.CreateMockSchemaRegistryClient("http://localhost:8081")
+	registry.CodecJsonEnabled(true)
+	schema, _ := registry.CreateSchema("my-topic-value", simpleSchema, srclient.Avro)
+
+	// Create test message
+	codec, _ := goavro.NewCodecForStandardJSONFull(simpleSchema)
+	native, _, _ := codec.NativeFromTextual([]byte(`{"name": "test"}`))
+	valueBytes, _ := codec.BinaryFromNative(nil, native)
+	recordValue := formatByteRecord(schema.ID(), valueBytes)
+
+	t.Run("Deserialize with default options", func(t *testing.T) {
+		k := Kafka{
+			srClient:                               registry,
+			schemaCachingEnabled:                   false,
+			logger:                                 logger.NewLogger("kafka_test"),
+			avroDecimalBinarySpecCompliantEncoding: false,
+			avroIgnoreExtraFieldsFromTextual:       false,
+		}
+
+		msg := sarama.ConsumerMessage{
+			Key:   []byte("my_key"),
+			Value: recordValue,
+			Topic: "my-topic",
+		}
+		result, err := k.DeserializeValue(&msg, handlerConfig)
+		require.NoError(t, err)
+
+		var resultMap map[string]any
+		json.Unmarshal(result, &resultMap)
+		require.Equal(t, "test", resultMap["name"])
+	})
+
+	t.Run("Deserialize with IgnoreExtraFieldsFromTextual enabled", func(t *testing.T) {
+		k := Kafka{
+			srClient:                               registry,
+			schemaCachingEnabled:                   false,
+			logger:                                 logger.NewLogger("kafka_test"),
+			avroDecimalBinarySpecCompliantEncoding: false,
+			avroIgnoreExtraFieldsFromTextual:       true,
+		}
+
+		msg := sarama.ConsumerMessage{
+			Key:   []byte("my_key"),
+			Value: recordValue,
+			Topic: "my-topic",
+		}
+		result, err := k.DeserializeValue(&msg, handlerConfig)
+		require.NoError(t, err)
+
+		var resultMap map[string]any
+		json.Unmarshal(result, &resultMap)
+		require.Equal(t, "test", resultMap["name"])
+	})
+
+	t.Run("Deserialize with DecimalBinarySpecCompliantEncoding enabled", func(t *testing.T) {
+		k := Kafka{
+			srClient:                               registry,
+			schemaCachingEnabled:                   false,
+			logger:                                 logger.NewLogger("kafka_test"),
+			avroDecimalBinarySpecCompliantEncoding: true,
+			avroIgnoreExtraFieldsFromTextual:       false,
+		}
+
+		msg := sarama.ConsumerMessage{
+			Key:   []byte("my_key"),
+			Value: recordValue,
+			Topic: "my-topic",
+		}
+		result, err := k.DeserializeValue(&msg, handlerConfig)
+		require.NoError(t, err)
+
+		var resultMap map[string]any
+		json.Unmarshal(result, &resultMap)
+		require.Equal(t, "test", resultMap["name"])
+	})
+}
+
+func TestSerializeValueWithCodecOptions(t *testing.T) {
+	simpleSchema := `{"type": "record", "name": "test", "fields": [{"name": "name", "type": "string"}]}`
+
+	registry := srclient.CreateMockSchemaRegistryClient("http://localhost:8081")
+	registry.CodecJsonEnabled(true)
+	schema, _ := registry.CreateSchema("my-topic-value", simpleSchema, srclient.Avro)
+
+	t.Run("Serialize with IgnoreExtraFieldsFromTextual enabled - ignores extra fields", func(t *testing.T) {
+		k := Kafka{
+			srClient:                               registry,
+			schemaCachingEnabled:                   false,
+			logger:                                 logger.NewLogger("kafka_test"),
+			useAvroJSON:                            true, // Required for options to take effect
+			avroDecimalBinarySpecCompliantEncoding: false,
+			avroIgnoreExtraFieldsFromTextual:       true,
+		}
+
+		// JSON with extra field that should be ignored
+		jsonWithExtra := []byte(`{"name": "test", "extraField": "ignored"}`)
+		result, err := k.SerializeValue("my-topic", jsonWithExtra, map[string]string{"valueSchemaType": "Avro"})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Verify the schema ID is correct
+		schemaID := int(binary.BigEndian.Uint32(result[1:5]))
+		require.Equal(t, schema.ID(), schemaID)
+	})
+
+	t.Run("Serialize with IgnoreExtraFieldsFromTextual disabled - fails on extra fields", func(t *testing.T) {
+		k := Kafka{
+			srClient:                               registry,
+			schemaCachingEnabled:                   false,
+			logger:                                 logger.NewLogger("kafka_test"),
+			avroDecimalBinarySpecCompliantEncoding: false,
+			avroIgnoreExtraFieldsFromTextual:       false,
+		}
+
+		// JSON with extra field that should cause an error
+		jsonWithExtra := []byte(`{"name": "test", "extraField": "notAllowed"}`)
+		_, err := k.SerializeValue("my-topic", jsonWithExtra, map[string]string{"valueSchemaType": "Avro"})
+		require.Error(t, err)
+	})
 }

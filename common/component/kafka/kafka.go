@@ -72,6 +72,10 @@ type Kafka struct {
 	latestSchemaCacheWriteLock sync.RWMutex
 	latestSchemaCacheReadLock  sync.Mutex
 
+	useAvroJSON                            bool
+	avroDecimalBinarySpecCompliantEncoding bool
+	avroIgnoreExtraFieldsFromTextual       bool
+
 	// used for background logic that cannot use the context passed to the Init function
 	internalContext       context.Context
 	internalContextCancel func()
@@ -245,6 +249,10 @@ func (k *Kafka) Init(ctx context.Context, metadata map[string]string) error {
 			k.logger.Debugf("Schema cache TTL: %v", meta.SchemaLatestVersionCacheTTL)
 			k.latestSchemaCacheTTL = meta.SchemaLatestVersionCacheTTL
 		}
+		k.schemaCachingEnabled = meta.SchemaCachingEnabled
+		k.useAvroJSON = meta.UseAvroJSON
+		k.avroDecimalBinarySpecCompliantEncoding = meta.AvroDecimalBinarySpecCompliantEncoding
+		k.avroIgnoreExtraFieldsFromTextual = meta.AvroIgnoreExtraFieldsFromTextual
 	}
 
 	clients, err := k.latestClients()
@@ -375,7 +383,11 @@ func (k *Kafka) DeserializeValue(message *sarama.ConsumerMessage, config Subscri
 		if err != nil {
 			return nil, err
 		}
-		codec := schema.Codec() // The value returned in Avro JSON format
+		// Create codec with configured options instead of using schema.Codec()
+		codec, err := k.newCodecWithOptions(schema.Schema())
+		if err != nil {
+			return nil, err
+		}
 		native, _, err := codec.NativeFromBinary(message.Value[5:])
 		if err != nil {
 			return nil, err
@@ -411,7 +423,11 @@ func (k *Kafka) getLatestSchema(topic string) (*srclient.Schema, *goavro.Codec, 
 		if errSchema != nil {
 			return nil, nil, errSchema
 		}
-		codec := schema.Codec()
+		// Create codec with configured options instead of using schema.Codec()
+		codec, errCodec := k.newCodecWithOptions(schema.Schema())
+		if errCodec != nil {
+			return nil, nil, errCodec
+		}
 
 		k.latestSchemaCacheWriteLock.Lock()
 		k.latestSchemaCache[subject] = SchemaCacheEntry{schema: schema, codec: codec, expirationTime: time.Now().Add(k.latestSchemaCacheTTL)}
@@ -422,7 +438,12 @@ func (k *Kafka) getLatestSchema(topic string) (*srclient.Schema, *goavro.Codec, 
 	if err != nil {
 		return nil, nil, err
 	}
-	return schema, schema.Codec(), nil
+	// Create codec with configured options instead of using schema.Codec()
+	codec, err := k.newCodecWithOptions(schema.Schema())
+	if err != nil {
+		return nil, nil, err
+	}
+	return schema, codec, nil
 }
 
 func (k *Kafka) getSchemaRegistyClient() (srclient.ISchemaRegistryClient, error) {
@@ -431,6 +452,23 @@ func (k *Kafka) getSchemaRegistyClient() (srclient.ISchemaRegistryClient, error)
 	}
 
 	return k.srClient, nil
+}
+
+// newCodecWithOptions creates a goavro codec with the configured options.
+// This allows using the new goavro v2.15.0 options for decimal encoding and extra field handling.
+// Note: The new codec options (avroDecimalBinarySpecCompliantEncoding and avroIgnoreExtraFieldsFromTextual)
+// are only effective when useAvroJSON is true. When useAvroJSON is false (default), standard JSON
+// format is used via NewCodecForStandardJSONFull which does not support custom options.
+func (k *Kafka) newCodecWithOptions(schemaJSON string) (*goavro.Codec, error) {
+	if !k.useAvroJSON {
+		// Use standard JSON format (default) - custom options are not supported
+		return goavro.NewCodecForStandardJSONFull(schemaJSON)
+	}
+	// Use Avro JSON format with custom options
+	opts := goavro.DefaultCodecOption()
+	opts.EnableDecimalBinarySpecCompliantEncoding = k.avroDecimalBinarySpecCompliantEncoding
+	opts.IgnoreExtraFieldsFromTextual = k.avroIgnoreExtraFieldsFromTextual
+	return goavro.NewCodecWithOptions(schemaJSON, opts)
 }
 
 func (k *Kafka) SerializeValue(topic string, data []byte, metadata map[string]string) ([]byte, error) {

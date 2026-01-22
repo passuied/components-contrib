@@ -124,6 +124,9 @@ type KafkaMetadata struct {
 	SchemaLatestVersionCacheTTL time.Duration `mapstructure:"schemaLatestVersionCacheTTL"`
 	UseAvroJSON                 bool          `mapstructure:"useAvroJSON"`
 
+	AvroDecimalBinarySpecCompliantEncoding bool `mapstructure:"avroDecimalBinarySpecCompliantEncoding"`
+	AvroIgnoreExtraFieldsFromTextual       bool `mapstructure:"avroIgnoreExtraFieldsFromTextual"`
+
 	// header from/to metadata excluded keys regex
 	ExcludeHeaderMetaRegex string `mapstructure:"excludeHeaderMetaRegex"`
 }
